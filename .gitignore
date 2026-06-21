@@ -1,0 +1,17 @@
+# Entorno y artefactos de ejecución
+.venv/
+__pycache__/
+*.pyc
+logs/
+recordings/
+tmp/
+state/
+
+# Secretos y config local (NO versionar)
+config/config.yaml
+config/schedule.yaml
+config/credentials.json
+config/token.json
+config/*.local.yaml
+config/config.yaml.bak
+config/config.yaml.baky2k

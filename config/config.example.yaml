@@ -1,0 +1,144 @@
+# =============================================================================
+# config.yaml — configuración global de iptvrec
+#
+# Copia este fichero a  config/config.yaml  y ajústalo. Las rutas RELATIVAS se
+# resuelven contra la raíz de instalación (la carpeta que descomprimes); las
+# ABSOLUTAS se usan tal cual. Usa siempre barras "/" (válidas en Linux).
+# Cualquier valor admite "${ENV:NOMBRE}" para leerlo de una variable de entorno
+# (útil para no escribir secretos en el fichero).
+# =============================================================================
+
+# --- Almacenamiento ----------------------------------------------------------
+# Carpeta de las grabaciones FINALES (tras la copia verificada).
+#   relativa: recordings   |   absoluta: /mnt/nas/tv
+output_dir: recordings
+
+# Carpeta TEMPORAL durante la grabación (segmentos .ts + ensamblado). Mejor en
+# disco rápido; al terminar, el resultado se copia verificado a output_dir.
+temp_dir: tmp
+
+# Contenedor del fichero final (se remuxea SIN recodificar, -c copy):
+#   mp4  (por defecto; máxima compatibilidad, con +faststart)
+#   mkv  (contenedor robusto)
+#   ts   (sin remux; lo más a prueba de cortes)
+output_format: mp4
+
+# Plantilla del nombre de salida. Marcadores:
+#   {name} {source} {channel} {date:%Y-%m-%d} {time:%H%M} {ext} {job_id}
+output_template: "{name}_{date:%Y-%m-%d}_{time:%H%M}.{ext}"
+
+# --- ffmpeg ------------------------------------------------------------------
+ffmpeg:
+  binary: ffmpeg              # debe estar en el PATH (lo verifica install.sh)
+  ffprobe_binary: ffprobe
+  user_agent: ""             # vacío = User-Agent de navegador por defecto
+  rw_timeout: 30000000       # microsegundos; aborta una lectura colgada (30 s)
+  loglevel: warning          # quiet|panic|fatal|error|warning|info|verbose|debug
+  reconnect:                 # reconexión interna de ffmpeg ante cortes HTTP/HLS
+    reconnect: 1
+    reconnect_at_eof: 1
+    reconnect_streamed: 1
+    reconnect_on_network_error: 1
+    reconnect_delay_max: 30  # segundos (tope del backoff interno de ffmpeg)
+  extra_input_args: []       # argumentos extra antes de -i (avanzado)
+
+# --- Resiliencia (supervisor propio, por encima de ffmpeg) -------------------
+resilience:
+  max_restarts: 0                # 0 = reinicios ilimitados hasta la hora de fin
+  backoff_base_seconds: 2        # espera del primer reintento
+  backoff_factor: 2.0            # se duplica en cada fallo consecutivo
+  backoff_max_seconds: 60        # tope de espera entre reintentos
+  backoff_reset_seconds: 120     # si ffmpeg aguantó este tiempo, resetea backoff
+  min_valid_segment_bytes: 1024  # segmentos más pequeños se descartan (basura)
+  url_refresh_each_restart: true # re-resolver la URL efímera en cada reinicio
+
+# --- Telegram ----------------------------------------------------------------
+telegram:
+  enabled: false
+  bot_token: "${ENV:IPTVREC_TG_TOKEN}"   # de BotFather; valor o ${ENV:...}
+  chat_id: ""                            # id numérico del chat (como texto)
+  notify_on: [start, success, failure, upload, token_expiry]
+
+# --- YouTube -----------------------------------------------------------------
+youtube:
+  enabled: false             # interruptor global (cada grabación además opta-in)
+  credentials_file: credentials.json   # cliente OAuth 'installed' en config/
+  token_file: token.json                # lo crea 'iptvrec youtube-auth'
+  privacy: private           # private | unlisted | public
+  category_id: "17"          # 22=Gente/blogs, 24=Entretenimiento, 17=Deportes
+  title_template: "{name} - {date:%Y-%m-%d}"
+  description_template: "Grabado desde {source}/{channel} el {date:%Y-%m-%d} {time:%H:%M}."
+  tags: [iptv, grabacion]
+  delete_local_after_upload: false
+  made_for_kids: false
+  # playlist_id NO se configura aquí: es por-grabación, dentro del bloque
+  # 'youtube' de cada entrada en schedule.yaml. Ver schedule.example.yaml.
+  # En modo "Testing" de Google el refresh token caduca a los 7 días. El demonio
+  # avisa por Telegram 'token_warn_days' antes. Pon 0 si publicas la app (tokens
+  # duraderos) para desactivar el aviso proactivo.
+  token_lifetime_days: 7
+  token_warn_days: 2
+
+# --- Xtream Codes ------------------------------------------------------------
+xtream:
+  enabled: false
+  base_url: "http://tu-proveedor.com:8080"  # esquema+host+puerto, SIN barra final
+  username: ""
+  password: "${ENV:IPTVREC_XTREAM_PASS}"
+  container: ts              # ts (recomendado) | m3u8
+  channel_cache_minutes: 60
+
+# --- Playlists M3U/M3U8 ------------------------------------------------------
+m3u8:
+  enabled: false
+  sources:
+    - name: principal
+      url: ""                # ruta local (relativa a la raíz) o URL http(s)
+  channel_cache_minutes: 60
+
+# --- atresplayer (API pública; sin credenciales) ----------------------------
+atresplayer:
+  enabled: true
+  api_base: "https://api.atresplayer.com"
+  # Mapa nombre→slug. En el programador puedes usar el nombre, el slug o el id.
+  channels:
+    antena3: antena3
+    lasexta: lasexta
+    mega: mega
+    neox: neox
+    nova: nova
+    atreseries: atreseries
+
+# --- RTVE Play (API pública; sin credenciales) -----------------------------
+rtveplay:
+  enabled: true
+  # Mapa slug→nombre mostrable. El slug es la parte de la URL del directo:
+  #   https://www.rtve.es/play/videos/directo/canales-lineales/{slug}/
+  channels:
+    la-1: La 1
+    la-2: La 2
+    24h: 24h
+    tdp: Teledeporte
+    clan: Clan
+    rtve-play: RTVE Play
+
+# --- Logging -----------------------------------------------------------------
+logging:
+  level: INFO                # DEBUG | INFO | WARNING | ERROR
+  file: logs/daemon.log      # relativo a la raíz
+  max_bytes: 10485760        # 10 MiB antes de rotar
+  backup_count: 5            # nº de ficheros rotados que se conservan
+  console: true              # además, sacar por pantalla (útil en 1er plano)
+
+# --- Programador -------------------------------------------------------------
+scheduler:
+  tick_seconds: 15           # cada cuánto revisa el programador
+  catchup_grace_seconds: 120 # margen para recuperar disparos perdidos por caídas
+  max_concurrent: 4          # nº máx. de grabaciones simultáneas (0 = sin límite)
+  min_free_mb_temp: 2048     # no graba si el temporal tiene menos espacio libre
+  min_free_mb_output: 2048   # no graba si la carpeta final tiene menos espacio
+
+# --- Zona horaria ------------------------------------------------------------
+# Nombre IANA. Todas las horas del programador se interpretan aquí. Maneja el
+# cambio CET/CEST. Debian necesita el paquete 'tzdata'.
+timezone: Europe/Madrid

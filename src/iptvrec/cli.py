@@ -1,0 +1,363 @@
+"""Interfaz de línea de comandos de iptvrec (argparse)."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from . import (config, monitor, notify, paths, providers, recorder,
+               scheduler, youtube)
+from . import __version__
+from .errors import IPTVRecError
+from .providers import atresplayer, rtveplay, xtream
+
+
+def _pjson(obj) -> None:
+    print(json.dumps(obj, ensure_ascii=False, indent=2, default=str))
+
+
+# --- validate ----------------------------------------------------------------
+
+def cmd_validate(cfg, args) -> int:
+    from .config import ensure_dirs, validate_config
+    try:
+        validate_config(cfg)
+    except Exception as exc:
+        print(f"✗ Configuración inválida: {exc}")
+        return 1
+    ensure_dirs(cfg)
+    ff = shutil.which(cfg.ffmpeg.get("binary", "ffmpeg"))
+    fp = shutil.which(cfg.ffmpeg.get("ffprobe_binary", "ffprobe"))
+    print("✓ config.yaml válido")
+    print(f"  output_dir : {cfg.output_dir}")
+    print(f"  temp_dir   : {cfg.temp_dir}")
+    print(f"  formato    : {cfg.output_format}")
+    print(f"  timezone   : {cfg.timezone}")
+    print(f"  ffmpeg     : {ff or 'NO ENCONTRADO'}")
+    print(f"  ffprobe    : {fp or 'NO ENCONTRADO'}")
+    print(f"  programadas: {len(scheduler.load_schedule())} grabación(es)")
+    ok = bool(ff and fp)
+    print("✓ Todo listo." if ok else "✗ Falta ffmpeg/ffprobe (instala el paquete del sistema).")
+    return 0 if ok else 1
+
+
+# --- channels ----------------------------------------------------------------
+
+def cmd_channels(cfg, args) -> int:
+    src = args.source
+    if src == "atresplayer":
+        chans = providers.list_channels("atresplayer", cfg, force_refresh=args.refresh)
+        if args.json:
+            _pjson([{"name": c.name, "slug": c.ref} for c in chans])
+            return 0
+        print(f"{'NOMBRE':<28} {'SLUG':<18} ID")
+        print("-" * 64)
+        for c in chans:
+            cid = ""
+            if args.verify:
+                try:
+                    cid = atresplayer._slug_to_id(c.ref, cfg, None)
+                except Exception:
+                    cid = "(error)"
+            print(f"{c.name[:27]:<28} {c.ref[:17]:<18} {cid}")
+        return 0
+    if src == "rtveplay":
+        chans = providers.list_channels("rtveplay", cfg, force_refresh=args.refresh)
+        if args.json:
+            _pjson([{"name": c.name, "slug": c.ref} for c in chans])
+            return 0
+        print(f"{'NOMBRE':<28} {'SLUG':<18}")
+        print("-" * 48)
+        for c in chans:
+            print(f"{c.name[:27]:<28} {c.ref[:17]:<18}")
+        return 0
+    if src == "xtream":
+        info = {}
+        try:
+            info = xtream.check_auth(cfg)
+        except Exception as exc:
+            print(f"AVISO: auth Xtream falló: {exc}")
+        chans = providers.list_channels("xtream", cfg, force_refresh=args.refresh)
+        if args.json:
+            _pjson([{"stream_id": c.ref, "name": c.name,
+                     "category": c.attributes.get("category")} for c in chans])
+            return 0
+        print(f"{'STREAM_ID':<12} {'NOMBRE':<38} CATEGORÍA")
+        print("-" * 70)
+        for c in chans:
+            print(f"{c.ref:<12} {c.name[:37]:<38} {c.attributes.get('category', '')}")
+        if info:
+            print(f"\nCuenta: {info.get('status')}  exp {info.get('exp_date')}  "
+                  f"conexiones {info.get('active_cons')}/{info.get('max_connections')}")
+        return 0
+    if src == "m3u8":
+        chans = providers.list_channels("m3u8", cfg, playlist=args.playlist)
+        if args.json:
+            _pjson([{"name": c.name, "url": c.url, **c.attributes} for c in chans])
+            return 0
+        print(f"{'NOMBRE':<34} {'GRUPO':<16} TVG-ID")
+        print("-" * 70)
+        for c in chans:
+            print(f"{c.name[:33]:<34} {c.attributes.get('group-title', '')[:15]:<16} "
+                  f"{c.attributes.get('tvg-id', '')}")
+        return 0
+    print(f"Fuente desconocida: {src}")
+    return 1
+
+
+# --- telegram / youtube-auth -------------------------------------------------
+
+def cmd_test_telegram(cfg, args) -> int:
+    if not cfg.telegram.get("enabled"):
+        print("telegram.enabled=false en config.yaml")
+        return 1
+    ok = notify.notify_test(cfg, args.message)
+    print("✓ Mensaje enviado." if ok else "✗ Fallo (revisa bot_token/chat_id).")
+    return 0 if ok else 1
+
+
+def cmd_youtube_auth(cfg, args) -> int:
+    youtube.run_auth(cfg, reauth=args.reauth)
+    return 0
+
+
+# --- record ------------------------------------------------------------------
+
+def cmd_record(cfg, args) -> int:
+    if args.from_spec:
+        recorder.record_from_spec(cfg, args.from_spec)
+        return 0
+    if not (args.source and args.channel and args.duration):
+        print("Se requiere --source, --channel y --duration (o --from-spec).")
+        return 1
+    import os
+    import uuid
+    from .state import write_json_atomic
+    tz = ZoneInfo(cfg.timezone)
+    start = datetime.now(tz)
+    end = start + timedelta(seconds=int(args.duration))
+    job_id = f"adhoc-{scheduler._safe(args.name or args.channel)}_{start.strftime('%Y%m%dT%H%M')}_{uuid.uuid4().hex[:6]}"
+    spec = {
+        "job_id": job_id, "entry_id": "adhoc", "name": args.name or args.channel,
+        "source": args.source, "channel": args.channel,
+        "start": start.isoformat(), "end": end.isoformat(),
+        "youtube": {"upload": bool(args.youtube)},
+    }
+    if args.detach:
+        spec_path = paths.JOBS_DIR / f"{job_id}.spec.json"
+        write_json_atomic(spec_path, spec)
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(paths.INSTALL_ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
+        subprocess.Popen(
+            [sys.executable, "-m", "iptvrec", "record", "--from-spec", str(spec_path)],
+            cwd=str(paths.INSTALL_ROOT), env=env, stdin=subprocess.DEVNULL,
+            stdout=open(paths.LOGS_DIR / f"{job_id}.log", "ab"),
+            stderr=subprocess.STDOUT, start_new_session=True,
+        )
+        print(f"Grabación lanzada en segundo plano: {job_id}")
+        return 0
+    print(f"Grabando '{args.channel}' durante {args.duration}s (Ctrl-C para detener)…")
+    recorder.record_job(cfg, spec)
+    return 0
+
+
+# --- daemon / status ---------------------------------------------------------
+
+def cmd_daemon(cfg, args) -> int:
+    if args.action == "run":
+        from .logging_setup import setup_logging
+        setup_logging(cfg)
+        scheduler.run_daemon(cfg)
+        return 0
+    script = paths.INSTALL_ROOT / ("start.sh" if args.action == "start" else "stop.sh")
+    if not script.exists():
+        print(f"No existe {script}")
+        return 1
+    return subprocess.call(["bash", str(script)])
+
+
+def cmd_status(cfg, args) -> int:
+    out = monitor.show(cfg, as_json=args.json, watch=args.watch)
+    if out:
+        print(out)
+    return 0
+
+
+# --- schedule ----------------------------------------------------------------
+
+def _load_schedule_doc():
+    import yaml
+    if paths.SCHEDULE_FILE.exists():
+        with open(paths.SCHEDULE_FILE, "r", encoding="utf-8") as fh:
+            return yaml.safe_load(fh) or {"recordings": []}
+    return {"recordings": []}
+
+
+def _save_schedule_doc(doc) -> None:
+    import yaml
+    with open(paths.SCHEDULE_FILE, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(doc, fh, allow_unicode=True, sort_keys=False)
+
+
+def _build_recurrence(args) -> dict:
+    if args.type == "daily":
+        return {"type": "daily", "time": args.time}
+    if args.type == "weekly":
+        days = [d.strip().lower()[:3] for d in (args.days or "").split(",") if d.strip()]
+        return {"type": "weekly", "days": days, "time": args.time}
+    return {"type": "once", "date": args.date, "time": args.time}
+
+
+def cmd_schedule(cfg, args) -> int:
+    tz = ZoneInfo(cfg.timezone)
+    if args.action == "list":
+        entries = scheduler.load_schedule()
+        if args.json:
+            _pjson(entries)
+            return 0
+        now = datetime.now(tz)
+        print(f"{'ID':<22} {'ON':<3} {'FUENTE':<11} {'CANAL':<20} PRÓXIMA")
+        print("-" * 80)
+        for e in entries:
+            nf = scheduler.next_upcoming(e, now, tz)
+            nf_s = nf.strftime("%Y-%m-%d %H:%M") if nf else "-"
+            on = "sí" if e.get("enabled", True) else "no"
+            print(f"{str(e.get('id'))[:21]:<22} {on:<3} {str(e.get('source')):<11} "
+                  f"{str(e.get('channel'))[:19]:<20} {nf_s}")
+        return 0
+
+    doc = _load_schedule_doc()
+    recs = doc.setdefault("recordings", [])
+    if args.action == "add":
+        if any(r.get("id") == args.id for r in recs):
+            print(f"Ya existe una entrada con id '{args.id}'")
+            return 1
+        rec = {"id": args.id, "enabled": True, "name": args.name or args.channel,
+               "source": args.source, "channel": args.channel,
+               "recurrence": _build_recurrence(args), "duration": int(args.duration)}
+        if args.youtube:
+            rec["youtube"] = {"upload": True}
+        recs.append(rec)
+        _save_schedule_doc(doc)
+        print(f"✓ Añadida '{args.id}'")
+        return 0
+    if args.action in ("remove", "enable", "disable"):
+        for r in list(recs):
+            if r.get("id") == args.id:
+                if args.action == "remove":
+                    recs.remove(r)
+                else:
+                    r["enabled"] = (args.action == "enable")
+                _save_schedule_doc(doc)
+                print(f"✓ {args.action} '{args.id}'")
+                return 0
+        print(f"No se encontró id '{args.id}'")
+        return 1
+    return 1
+
+
+# --- version -----------------------------------------------------------------
+
+def cmd_version(cfg, args) -> int:
+    print(f"iptvrec {__version__}")
+    ff = shutil.which(cfg.ffmpeg.get("binary", "ffmpeg"))
+    if ff:
+        try:
+            out = subprocess.run([ff, "-version"], capture_output=True, text=True, timeout=10)
+            if out.stdout:
+                print(out.stdout.splitlines()[0])
+        except Exception:
+            pass
+    return 0
+
+
+# --- parser & dispatch -------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="iptvrec",
+        description="Sistema de grabación IPTV (atresplayer / rtveplay / Xtream Codes / M3U8).")
+    p.add_argument("--config", help="ruta alternativa a config.yaml")
+    p.add_argument("--version", action="version", version=f"iptvrec {__version__}")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("validate", help="comprueba config, ffmpeg y zona horaria")
+    sub.add_parser("version", help="muestra versiones")
+
+    pc = sub.add_parser("channels", help="lista canales de una fuente")
+    pc.add_argument("source", choices=["atresplayer", "rtveplay", "xtream", "m3u8"])
+    pc.add_argument("--playlist", help="ruta o URL del playlist (solo m3u8)")
+    pc.add_argument("--refresh", action="store_true", help="ignora la caché de canales")
+    pc.add_argument("--verify", action="store_true", help="resuelve el id real (atresplayer)")
+    pc.add_argument("--json", action="store_true")
+
+    pr = sub.add_parser("record", help="graba ad-hoc o desde una spec interna")
+    pr.add_argument("--source", choices=["atresplayer", "rtveplay", "xtream", "m3u8"])
+    pr.add_argument("--channel")
+    pr.add_argument("--duration", type=int, help="duración en segundos")
+    pr.add_argument("--name")
+    pr.add_argument("--youtube", action="store_true", help="subir a YouTube al terminar")
+    pr.add_argument("--detach", action="store_true", help="lanzar en segundo plano")
+    pr.add_argument("--from-spec", help="(interno) graba desde un fichero spec JSON")
+
+    pd = sub.add_parser("daemon", help="arranca/para el programador en 2º plano o lo ejecuta en 1º")
+    pd.add_argument('action', choices=['start', 'stop', 'run'], help='start=inicia en 2º plano | stop=para | run=ejecuta en 1º plano (interno)')
+
+    ps = sub.add_parser("status", help="muestra el estado general")
+    ps.add_argument("--watch", type=float, nargs="?", const=2.0, help="refresca cada N segundos")
+    ps.add_argument("--json", action="store_true")
+
+    psc = sub.add_parser("schedule", help="gestiona las grabaciones programadas")
+    psc.add_argument("action", choices=["list", "add", "remove", "enable", "disable"])
+    psc.add_argument("--id")
+    psc.add_argument("--name")
+    psc.add_argument("--source", choices=["atresplayer", "rtveplay", "xtream", "m3u8"])
+    psc.add_argument("--channel")
+    psc.add_argument("--type", choices=["once", "daily", "weekly"], default="once")
+    psc.add_argument("--date", help="YYYY-MM-DD (recurrencia once)")
+    psc.add_argument("--time", default="00:00", help="HH:MM")
+    psc.add_argument("--days", help="weekly: lista mon,tue,wed,... separada por comas")
+    psc.add_argument("--duration", type=int, default=3600, help="segundos")
+    psc.add_argument("--youtube", action="store_true")
+    psc.add_argument("--json", action="store_true")
+
+    pt = sub.add_parser("test-telegram", help="envía un mensaje de prueba")
+    pt.add_argument("--message")
+
+    py = sub.add_parser("youtube-auth", help="autoriza la subida a YouTube (OAuth)")
+    py.add_argument("--reauth", action="store_true")
+    return p
+
+
+_DISPATCH = {
+    "validate": cmd_validate, "version": cmd_version, "channels": cmd_channels,
+    "record": cmd_record, "daemon": cmd_daemon, "status": cmd_status,
+    "schedule": cmd_schedule, "test-telegram": cmd_test_telegram,
+    "youtube-auth": cmd_youtube_auth,
+}
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    do_validate = args.cmd not in ("validate", "version")
+    try:
+        cfg = config.load_config(args.config, validate=do_validate)
+    except IPTVRecError as exc:
+        print(f"✗ {exc}")
+        return 1
+    handler = _DISPATCH.get(args.cmd)
+    if handler is None:
+        print(f"Comando desconocido: {args.cmd}")
+        return 2
+    try:
+        return handler(cfg, args) or 0
+    except KeyboardInterrupt:
+        print("\nInterrumpido.")
+        return 130
+    except IPTVRecError as exc:
+        print(f"✗ {exc}")
+        return 1

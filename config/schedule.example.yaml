@@ -1,0 +1,76 @@
+# =============================================================================
+# schedule.yaml — grabaciones programadas
+#
+# El demonio relee este fichero en cada tick: puedes editarlo EN CALIENTE.
+# Cada entrada necesita un 'id' ÚNICO. Las horas están en la zona horaria de
+# config.yaml (timezone). La hora de fin = inicio + duration (cruza medianoche
+# automáticamente). 'channel' admite NOMBRE, slug/id (atresplayer, rtveplay) o
+# stream_id (xtream). El bloque 'youtube' es opcional (hereda de config.yaml lo
+# que falte).
+#
+# Recurrencia:
+#   once   ->  recurrence: { type: once,  date: YYYY-MM-DD, time: "HH:MM" }
+#   daily  ->  recurrence: { type: daily, time: "HH:MM" }
+#   weekly ->  recurrence: { type: weekly, days: [mon,tue,wed,thu,fri,sat,sun], time: "HH:MM" }
+#
+# duration: en SEGUNDOS (3600 = 1h, 5400 = 1h30m, 7200 = 2h, 9000 = 2h30m).
+# enabled: false  -> la entrada se ignora (cámbiala a true para activarla).
+# =============================================================================
+
+recordings:
+
+  # --- Puntual (una vez) -----------------------------------------------------
+  - id: ejemplo-once
+    enabled: false
+    name: "Evento Puntual"
+    source: atresplayer            # atresplayer | rtveplay | xtream | m3u8
+    channel: lasexta               # nombre, slug o id de 24 hex (atresplayer)
+    recurrence: { type: once, date: 2026-07-01, time: "20:45" }
+    duration: 9000                 # 2h30m -> fin 23:15 (mismo día)
+    youtube: { upload: false }
+
+  # --- Diaria ----------------------------------------------------------------
+  - id: ejemplo-daily
+    enabled: false
+    name: "Telediario"
+    source: xtream
+    channel: "La 1 HD"             # nombre (se resuelve a stream_id) o stream_id
+    recurrence: { type: daily, time: "15:00" }
+    duration: 3600                 # 1 hora
+
+  # --- Diaria (rtveplay) -----------------------------------------------------
+  - id: ejemplo-rtveplay
+    enabled: false
+    name: "Telediario Matinal"
+    source: rtveplay               # slug del canal (la-1, la-2, 24h, tdp, clan…)
+    channel: la-1                  # ver ./bin/iptvrec channels rtveplay
+    recurrence: { type: daily, time: "08:00" }
+    duration: 5400                 # 1h30m
+
+  # --- Semanal (cruza medianoche) -------------------------------------------
+  - id: ejemplo-weekly
+    enabled: false
+    name: "Cine de Madrugada"
+    source: m3u8
+    channel: "Movie Channel"       # nombre tal cual aparece en el playlist
+    recurrence: { type: weekly, days: [fri, sat], time: "23:30" }
+    duration: 7200                 # 2h -> termina a la 01:30 del día siguiente
+
+  # --- Semanal + subida a YouTube con metadatos propios ----------------------
+  - id: ejemplo-youtube
+    enabled: false
+    name: "Mi Programa"
+    source: atresplayer
+    channel: antena3
+    recurrence: { type: weekly, days: [sun], time: "22:00" }
+    duration: 5400                 # 1h30m
+    youtube:
+      upload: true
+      privacy: unlisted            # sobrescribe el 'private' por defecto
+      title_template: "Mi Programa - {date:%d/%m/%Y}"
+      category_id: "24"
+      tags: [programa, semanal]
+      playlist_id: "PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      # ^ opcional: añade el vídeo a esta playlist tras subirlo. Si falla
+      #   (playlist inexistente, no es tuya, etc.) el vídeo se queda igual en
+      #   el canal: no aborta la grabación ni la subida, solo loguea un aviso.

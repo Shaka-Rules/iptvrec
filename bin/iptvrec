@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Lanzador portable de iptvrec. Calcula la raíz a partir de su propia ubicación,
+# así funciona allí donde se copie la carpeta.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+PY="$ROOT/.venv/bin/python"
+[ -x "$PY" ] || PY="python3"
+exec "$PY" -m iptvrec "$@"

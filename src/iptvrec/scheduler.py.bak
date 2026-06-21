@@ -1,0 +1,350 @@
+"""Demonio programador: lee schedule.yaml, dispara grabaciones (procesos hijo).
+
+Soporta recurrencia once/daily/weekly, fin = inicio + duración (con cambio de día),
+grabaciones simultáneas, dedup de disparos, y un chequeo diario del token de YouTube.
+Todas las horas se interpretan en la zona horaria de la config.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import re
+import signal
+import subprocess
+import sys
+import time as _time
+import uuid
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import yaml
+
+from . import config, notify, paths, youtube
+from .state import read_json, write_json_atomic
+
+log = logging.getLogger("iptvrec")
+
+_STOP = {"flag": False}
+WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+
+def _safe(s) -> str:
+    return re.sub(r"[^\w.\-]", "_", str(s)).strip("_") or "rec"
+
+
+def _parse_hm(value):
+    parts = str(value).split(":")
+    return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+
+
+def _combine(date_val, time_val, tz) -> datetime:
+    if isinstance(date_val, str):
+        y, mo, da = (int(x) for x in date_val.split("-"))
+    else:  # PyYAML parsea 'date: 2026-05-30' como datetime.date
+        y, mo, da = date_val.year, date_val.month, date_val.day
+    h, m = _parse_hm(time_val)
+    return datetime(y, mo, da, h, m, tzinfo=tz, fold=0)
+
+
+def candidate_fires(entry, now, tz) -> list:
+    """Disparos candidatos alrededor de ``now`` (ayer/hoy/mañana según recurrencia)."""
+    rec = entry.get("recurrence", {}) or {}
+    typ = rec.get("type")
+    out = []
+    if typ == "once":
+        try:
+            out.append(_combine(rec.get("date"), rec.get("time", "00:00"), tz))
+        except Exception:
+            pass
+    elif typ == "daily":
+        h, m = _parse_hm(rec.get("time", "00:00"))
+        for delta in (-1, 0, 1):
+            d = (now + timedelta(days=delta)).date()
+            out.append(datetime(d.year, d.month, d.day, h, m, tzinfo=tz, fold=0))
+    elif typ == "weekly":
+        h, m = _parse_hm(rec.get("time", "00:00"))
+        days = {WEEKDAYS.get(str(x).lower()[:3]) for x in (rec.get("days") or [])}
+        for delta in range(-1, 8):
+            d = (now + timedelta(days=delta)).date()
+            if d.weekday() in days:
+                out.append(datetime(d.year, d.month, d.day, h, m, tzinfo=tz, fold=0))
+    return sorted(out)
+
+
+def due_fire(entry, now, tz, window):
+    """Devuelve el disparo si la entrada está vencida ahora (dentro de la ventana)."""
+    for f in candidate_fires(entry, now, tz):
+        delta = (now - f).total_seconds()
+        if 0 <= delta <= window:
+            return f
+    return None
+
+
+def next_upcoming(entry, now, tz):
+    for f in candidate_fires(entry, now, tz):
+        if f >= now:
+            return f
+    return None
+
+
+# --- PID, señales, sleep -----------------------------------------------------
+
+def _install_signal_handlers() -> None:
+    def handler(signum, frame):
+        _STOP["flag"] = True
+    for s in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(s, handler)
+        except Exception:
+            pass
+
+
+def _write_pid() -> None:
+    write_json_atomic(paths.PID_FILE, {"pid": os.getpid()})
+
+
+def _remove_pid() -> None:
+    try:
+        paths.PID_FILE.unlink()
+    except OSError:
+        pass
+
+
+def daemon_pid():
+    data = read_json(paths.PID_FILE, {}) or {}
+    return data.get("pid")
+
+
+def _interruptible_sleep(seconds) -> None:
+    end = _time.monotonic() + seconds
+    while _time.monotonic() < end and not _STOP["flag"]:
+        _time.sleep(0.5)
+
+
+# --- Ledger de disparos (evita doble disparo) --------------------------------
+
+def _already_fired(key) -> bool:
+    led = read_json(paths.FIRED_FILE, {}) or {}
+    return key in led
+
+
+def _mark_fired(key) -> None:
+    led = read_json(paths.FIRED_FILE, {}) or {}
+    led[key] = _time.time()
+    cutoff = _time.time() - 7 * 86400  # poda entradas > 7 días
+    led = {k: v for k, v in led.items() if v >= cutoff}
+    write_json_atomic(paths.FIRED_FILE, led)
+
+
+# --- Schedule y disco --------------------------------------------------------
+
+def load_schedule() -> list:
+    if not paths.SCHEDULE_FILE.exists():
+        return []
+    with open(paths.SCHEDULE_FILE, "r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    return data.get("recordings", []) if isinstance(data, dict) else []
+
+
+def _free_mb(path) -> int:
+    import shutil
+    try:
+        return shutil.disk_usage(str(path)).free // (1024 * 1024)
+    except OSError:
+        return 0
+
+
+def _disk_ok(cfg) -> bool:
+    sc = cfg.scheduler
+    return (_free_mb(cfg.temp_dir) >= int(sc.get("min_free_mb_temp", 0))
+            and _free_mb(cfg.output_dir) >= int(sc.get("min_free_mb_output", 0)))
+
+
+# --- Lanzamiento de un job (proceso hijo) ------------------------------------
+
+def _child_env() -> dict:
+    env = dict(os.environ)
+    src = str(paths.INSTALL_ROOT / "src")
+    env["PYTHONPATH"] = src + os.pathsep + env.get("PYTHONPATH", "")
+    return env
+
+
+def _launch_job(cfg, entry, fire_dt, tz):
+    job_id = f"{_safe(entry.get('id'))}_{fire_dt.strftime('%Y%m%dT%H%M')}_{uuid.uuid4().hex[:6]}"
+    duration = int(entry.get("duration", 0))
+    end_dt = fire_dt + timedelta(seconds=duration)  # cruce de medianoche automático
+    spec = {
+        "job_id": job_id, "entry_id": entry.get("id"),
+        "name": entry.get("name") or entry.get("channel"),
+        "source": entry.get("source"), "channel": entry.get("channel"),
+        "start": fire_dt.isoformat(), "end": end_dt.isoformat(),
+        "youtube": entry.get("youtube") or {},
+    }
+    spec_path = paths.JOBS_DIR / f"{job_id}.spec.json"
+    write_json_atomic(spec_path, spec)
+    logfh = open(paths.LOGS_DIR / f"{job_id}.log", "ab")
+    cmd = [sys.executable, "-m", "iptvrec", "record", "--from-spec", str(spec_path)]
+    proc = subprocess.Popen(
+        cmd, cwd=str(paths.INSTALL_ROOT), env=_child_env(),
+        stdin=subprocess.DEVNULL, stdout=logfh, stderr=logfh,
+        start_new_session=True,
+    )
+    return job_id, proc, logfh
+
+
+def _reap(running: dict) -> None:
+    for job_id in list(running.keys()):
+        proc, fh = running[job_id]
+        if proc.poll() is not None:
+            try:
+                fh.close()
+            except Exception:
+                pass
+            del running[job_id]
+
+
+# --- Estado para el monitor --------------------------------------------------
+
+def _job_states() -> list:
+    out = []
+    for f in paths.JOBS_DIR.glob("*.json"):
+        if f.name.endswith(".spec.json"):
+            continue
+        d = read_json(f, None)
+        if d:
+            out.append(d)
+    return out
+
+
+def _prune_old_jobs(max_age_days: int = 7) -> None:
+    cutoff = _time.time() - max_age_days * 86400
+    for f in paths.JOBS_DIR.glob("*.json"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            pass
+
+
+def _write_status(cfg, now, running, schedule, tz, daemon_down=False) -> None:
+    states = _job_states()
+    active = []
+    for s in states:
+        if s.get("status") in ("starting", "recording", "finalizing") and s.get("job_id") in running:
+            try:
+                start = datetime.fromisoformat(s["start"])
+                end = datetime.fromisoformat(s["end"])
+                s["elapsed_s"] = max(0, int((now - start).total_seconds()))
+                s["remaining_s"] = max(0, int((end - now).total_seconds()))
+            except Exception:
+                pass
+            active.append(s)
+    recent = sorted([s for s in states if s.get("status") in ("success", "failed")],
+                    key=lambda s: s.get("finished_at", ""), reverse=True)[:20]
+    upcoming = []
+    for entry in schedule:
+        if not entry.get("enabled", True):
+            continue
+        nf = next_upcoming(entry, now, tz)
+        if nf:
+            upcoming.append({
+                "id": entry.get("id"), "name": entry.get("name") or entry.get("channel"),
+                "source": entry.get("source"), "channel": entry.get("channel"),
+                "next_fire": nf.isoformat(), "in_s": int((nf - now).total_seconds()),
+            })
+    upcoming.sort(key=lambda u: u["next_fire"])
+    status = {
+        "generated_at": now.isoformat(),
+        "daemon": {"running": (not daemon_down), "pid": os.getpid(),
+                   "timezone": cfg.timezone, "tick_seconds": cfg.scheduler.get("tick_seconds")},
+        "active": active,
+        "upcoming": upcoming[:10],
+        "recent": recent,
+        "disk": {"temp": {"path": str(cfg.temp_dir), "free_mb": _free_mb(cfg.temp_dir)},
+                 "output": {"path": str(cfg.output_dir), "free_mb": _free_mb(cfg.output_dir)}},
+        "youtube": youtube.token_status(cfg) if cfg.youtube.get("enabled") else {"configured": False},
+    }
+    write_json_atomic(paths.STATUS_FILE, status)
+
+
+# --- Bucle principal del demonio --------------------------------------------
+
+def run_daemon(cfg) -> None:
+    tz = ZoneInfo(cfg.timezone)
+    config.ensure_dirs(cfg)
+    _install_signal_handlers()
+    _write_pid()
+    _prune_old_jobs()
+    log.info("Demonio iptvrec iniciado (pid %s, tz %s)", os.getpid(), cfg.timezone)
+    if cfg.telegram.get("enabled"):
+        notify._send(cfg, "▶️ <b>iptvrec</b>: demonio iniciado", disable_notification=True)
+
+    running: dict = {}
+    tick = int(cfg.scheduler.get("tick_seconds", 15))
+    window = max(tick, int(cfg.scheduler.get("catchup_grace_seconds", 120)))
+    max_conc = int(cfg.scheduler.get("max_concurrent", 4))
+    last_token_day = None
+    try:
+        while not _STOP["flag"]:
+            now = datetime.now(tz)
+            _reap(running)
+            schedule = load_schedule()
+            for entry in schedule:
+                if not entry.get("enabled", True):
+                    continue
+                fire = due_fire(entry, now, tz, window)
+                if not fire:
+                    continue
+                key = f"{entry.get('id')}@{int(fire.timestamp())}"
+                if _already_fired(key):
+                    continue
+                if max_conc > 0 and len(running) >= max_conc:
+                    log.warning("Concurrencia máxima (%d); '%s' esperará", max_conc, entry.get("id"))
+                    continue
+                if not _disk_ok(cfg):
+                    log.warning("Disco insuficiente; no se lanza '%s'", entry.get("id"))
+                    continue
+                try:
+                    job_id, proc, fh = _launch_job(cfg, entry, fire, tz)
+                    running[job_id] = (proc, fh)
+                    _mark_fired(key)
+                    log.info("Lanzada grabación %s (entry %s)", job_id, entry.get("id"))
+                except Exception:
+                    log.exception("No se pudo lanzar '%s'", entry.get("id"))
+
+            today = now.date().isoformat()
+            if cfg.youtube.get("enabled") and last_token_day != today:
+                try:
+                    youtube.check_and_warn_expiry(cfg)
+                except Exception as exc:
+                    log.warning("chequeo token youtube: %s", exc)
+                last_token_day = today
+
+            try:
+                _write_status(cfg, now, running, schedule, tz)
+            except Exception as exc:
+                log.warning("no se pudo escribir status: %s", exc)
+            _interruptible_sleep(tick)
+    finally:
+        log.info("Demonio deteniéndose; señalando %d grabación(es)…", len(running))
+        for _jid, (proc, _fh) in running.items():
+            try:
+                proc.terminate()  # SIGTERM → el recorder finaliza lo ya grabado
+            except Exception:
+                pass
+        for _jid, (proc, fh) in running.items():
+            try:
+                proc.wait(timeout=30)
+            except Exception:
+                pass
+            try:
+                fh.close()
+            except Exception:
+                pass
+        try:
+            _write_status(cfg, datetime.now(tz), {}, [], tz, daemon_down=True)
+        except Exception:
+            pass
+        _remove_pid()
+        if cfg.telegram.get("enabled"):
+            notify._send(cfg, "⏹ <b>iptvrec</b>: demonio detenido", disable_notification=True)

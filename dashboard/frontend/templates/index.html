@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IPTVrec Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-body: #020617; --bg-sidebar: #0f172a; --bg-card: #1e293b;
+      --bg-elevated: #0f172a; --bg-input: #0f172a;
+      --border: #334155; --border-light: #1e293b;
+      --text-primary: #f8fafc; --text-secondary: #e2e8f0;
+      --text-muted: #64748b; --text-nav: #94a3b8;
+      --accent: #6366f1; --accent-hover: #818cf8;
+      --emerald: #34d399; --red: #f87171; --amber: #fbbf24; --blue: #60a5fa; --purple: #a78bfa;
+    }
+    html, body { height: 100%; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg-body); color: var(--text-secondary); min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar { width: 16rem; background: var(--bg-sidebar); border-right: 1px solid var(--border-light); flex-shrink: 0; display: none; flex-direction: column; }
+    @media (min-width: 768px) { .sidebar { display: flex; } }
+    .sidebar-nav { flex: 1; padding: 1rem 0.75rem; }
+    .sidebar-nav a { display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; color: var(--text-nav); text-decoration: none; }
+    .sidebar-nav a:hover { background: var(--bg-card); color: var(--text-secondary); }
+    .sidebar-nav a.active { background: rgba(99,102,241,0.2); color: #a5b4fc; }
+
+    /* Layout */
+    .main-area { flex: 1; overflow-y: auto; padding-top: 3.5rem; }
+    @media (min-width: 768px) { .main-area { padding-top: 0; } }
+    .content { padding: 1rem; max-width: 80rem; margin: 0 auto; }
+    @media (min-width: 768px) { .content { padding: 1.5rem; } }
+    @media (min-width: 1024px) { .content { padding: 2rem; } }
+
+    /* Cards */
+    .card { background: var(--bg-card); border-radius: 0.75rem; border: 1px solid var(--border); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
+    .card-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .card-body { padding: 1.25rem; }
+
+        /* Buttons */
+    .btn-primary, .btn-secondary, .btn-success, .btn-danger {
+        display: inline-flex; align-items: center; gap: 0.5rem;
+        font-weight: 600; padding: 0.55rem 1.25rem; border-radius: 0.5rem;
+        border: none; font-size: 0.875rem; cursor: pointer;
+        text-decoration: none; transition: all 0.15s;
+    }
+    .btn-primary { background: #4f46e5; color: #fff; }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-secondary { background: #334155; color: #e2e8f0; border: 1px solid #475569; }
+    .btn-secondary:hover { background: #475569; border-color: #64748b; }
+    .btn-success { background: #059669; color: #fff; }
+    .btn-success:hover { background: #047857; }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-sm { padding: 0.35rem 0.8rem; font-size: 0.75rem; }
+    .btn-icon { display: inline-flex; align-items: center; justify-content: center;
+        padding: 0.35rem; color: #64748b; background: none; border: none;
+        border-radius: 0.375rem; cursor: pointer; }
+    .btn-icon:hover { color: #818cf8; background: rgba(99,102,241,0.1); }
+    .btn-primary:disabled, .btn-secondary:disabled, .btn-success:disabled, .btn-danger:disabled {
+        opacity: 0.35; cursor: not-allowed; }
+
+    /* Badges */
+    .badge { display: inline-flex; align-items: center; padding: 0.125rem 0.625rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
+    .badge-green { background: rgba(6,78,59,0.6); color: #6ee7b7; }
+    .badge-red { background: rgba(127,29,29,0.6); color: #fca5a5; }
+    .badge-yellow { background: rgba(113,63,18,0.6); color: #fcd34d; }
+    .badge-blue { background: rgba(30,64,175,0.6); color: #93c5fd; }
+    .badge-gray { background: rgba(71,85,105,0.6); color: #94a3b8; }
+
+        
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    .btn:disabled, .btn-primary:disabled, .btn-secondary:disabled, .btn-success:disabled, 
+    
+    
+    /* Progress */
+    .progress-bar { height: 0.5rem; border-radius: 9999px; background: #334155; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 9999px; transition: all 0.5s; }
+    .bg-indigo-500 { background: #6366f1; }
+    .bg-amber-500 { background: #f59e0b; }
+
+    /* Forms */
+    input, select, textarea { background: var(--bg-input); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-size: 0.875rem; width: 100%; outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.2); }
+    label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem; color: #94a3b8; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 0.75rem 1rem; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+    td { padding: 0.75rem 1rem; font-size: 0.875rem; border-bottom: 1px solid var(--border-light); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-sidebar); }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* Links */
+    a { color: var(--accent-hover); text-decoration: none; }
+    a:hover { color: #c7d2fe; }
+
+    /* Colors */
+    .text-primary { color: var(--text-primary); }
+    .text-secondary { color: var(--text-secondary); }
+    .text-muted { color: var(--text-muted); }
+    .text-white { color: var(--text-primary); }
+    
+    .bg-body { background: var(--bg-body); }
+    .bg-card { background: var(--bg-card); }
+    .bg-elevated { background: var(--bg-elevated); }
+    .bg-indigo-600 { background: #4f46e5; }
+    .bg-indigo-600\/20 { background: rgba(79,70,229,0.2); }
+    .bg-emerald-900\/40 { background: rgba(6,78,59,0.4); }
+    .bg-red-900\/40 { background: rgba(127,29,29,0.4); }
+    .bg-blue-900\/40 { background: rgba(30,64,175,0.4); }
+    .bg-purple-900\/40 { background: rgba(76,29,149,0.4); }
+    .bg-amber-900\/40 { background: rgba(120,53,15,0.4); }
+    .bg-black\/50 { background: rgba(0,0,0,0.5); }
+    
+    .text-indigo-300 { color: #a5b4fc; }
+    .text-indigo-400 { color: #818cf8; }
+    .text-emerald-400 { color: #34d399; }
+    .text-red-400 { color: #f87171; }
+    .text-amber-400 { color: #fbbf24; }
+    .text-blue-400 { color: #60a5fa; }
+    .text-purple-400 { color: #c4b5fd; }
+    
+    .bg-emerald-400 { background: #34d399; }
+    .bg-red-400 { background: #f87171; }
+    
+    .hover\:text-indigo-300:hover { color: #a5b4fc; }
+    .hover\:text-indigo-400:hover { color: #818cf8; }
+    .hover\:text-red-300:hover { color: #fca5a5; }
+    .hover\:text-red-400:hover { color: #f87171; }
+    .hover\:text-white:hover { color: #fff; }
+    .hover\:bg-slate-800:hover { background: #1e293b; }
+
+    /* Flex/Grid helpers */
+    .flex { display: flex; }
+    .flex-col { flex-direction: column; }
+    .flex-row { flex-direction: row; }
+    .flex-1 { flex: 1; }
+    .flex-shrink-0 { flex-shrink: 0; }
+    .items-center { align-items: center; }
+    .items-start { align-items: flex-start; }
+    .justify-center { justify-content: center; }
+    .justify-between { justify-content: space-between; }
+    
+    .grid { display: grid; }
+    .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+    .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    @media (min-width: 768px) { .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (min-width: 1024px) { .lg\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .lg\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    .gap-2 { gap: 0.5rem; } .gap-3 { gap: 0.75rem; } .gap-4 { gap: 1rem; } .gap-6 { gap: 1.5rem; }
+    .space-y-1 > * + * { margin-top: 0.25rem; }
+    .space-y-3 > * + * { margin-top: 0.75rem; }
+    .space-y-4 > * + * { margin-top: 1rem; }
+    .space-y-6 > * + * { margin-top: 1.5rem; }
+    .content-start { align-content: flex-start; }
+
+    /* Spacing */
+    .p-1 { padding: 0.25rem; } .p-2 { padding: 0.5rem; } .p-4 { padding: 1rem; } .p-5 { padding: 1.25rem; }
+    .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+    .px-4 { padding-left: 1rem; padding-right: 1rem; }
+    .px-5 { padding-left: 1.25rem; padding-right: 1.25rem; }
+    .px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+    .py-2\.5 { padding-top: 0.625rem; padding-bottom: 0.625rem; }
+    .py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+    .py-6 { padding-top: 1.5rem; padding-bottom: 1.5rem; }
+    .py-8 { padding-top: 2rem; padding-bottom: 2rem; }
+    .pt-14 { padding-top: 3.5rem; }
+    
+    .mt-1 { margin-top: 0.25rem; }
+    .mt-2 { margin-top: 0.5rem; }
+    .mt-3 { margin-top: 0.75rem; }
+    .mb-1 { margin-bottom: 0.25rem; }
+    .mb-2 { margin-bottom: 0.5rem; }
+    .mb-3 { margin-bottom: 0.75rem; }
+    .mb-4 { margin-bottom: 1rem; }
+    .ml-4 { margin-left: 1rem; }
+    .mx-auto { margin-left: auto; margin-right: auto; }
+    
+    .last\:border-0:last-child { border-bottom: none !important; }
+    .last\:mb-0:last-child { margin-bottom: 0 !important; }
+
+    /* Sizing */
+    .w-2 { width: 0.5rem; } .w-3 { width: 0.75rem; } .w-4 { width: 1rem; } .w-5 { width: 1.25rem; } .w-6 { width: 1.5rem; } .w-8 { width: 2rem; } .w-12 { width: 3rem; } .w-64 { width: 16rem; }
+    .h-2 { height: 0.5rem; } .h-3 { height: 0.75rem; } .h-4 { height: 1rem; } .h-5 { height: 1.25rem; } .h-6 { height: 1.5rem; } .h-8 { height: 2rem; } .h-12 { height: 3rem; } .h-14 { height: 3.5rem; } .h-16 { height: 4rem; } .h-screen { height: 100vh; }
+    .min-h-screen { min-height: 100vh; }
+    .min-w-0 { min-width: 0; }
+    .max-w-7xl { max-width: 80rem; }
+
+    /* Typography */
+    .text-xs { font-size: 0.75rem; }
+    .text-sm { font-size: 0.875rem; }
+    .text-lg { font-size: 1.125rem; }
+    .text-2xl { font-size: 1.5rem; }
+    .font-medium { font-weight: 500; }
+    .font-semibold { font-weight: 600; }
+    .font-bold { font-weight: 700; }
+    .font-mono { font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .uppercase { text-transform: uppercase; }
+    .tracking-wider { letter-spacing: 0.05em; }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Displays */
+    .hidden { display: none; }
+    .inline-block { display: inline-block; }
+    @media (min-width: 768px) { .md\:hidden { display: none; } .md\:flex { display: flex; } .md\:flex-col { flex-direction: column; } .md\:flex-row { flex-direction: row; } .md\:items-center { align-items: center; } .md\:justify-between { justify-content: space-between; } .md\:pt-0 { padding-top: 0; } .md\:p-6 { padding: 1.5rem; } }
+
+    /* Borders */
+    .border { border: 1px solid var(--border); }
+    .border-b { border-bottom: 1px solid var(--border); }
+    .border-t { border-top: 1px solid var(--border); }
+    .border-r { border-right: 1px solid var(--border-light); }
+    .rounded-lg { border-radius: 0.5rem; }
+    .rounded-full { border-radius: 9999px; }
+    .rounded-xl { border-radius: 0.75rem; }
+
+    /* Position */
+    .fixed { position: fixed; }
+    .absolute { position: absolute; }
+    .relative { position: relative; }
+    .inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+    .top-0 { top: 0; } .top-14 { top: 3.5rem; } .left-0 { left: 0; } .right-0 { right: 0; } .bottom-0 { bottom: 0; }
+    .z-30 { z-index: 30; } .z-40 { z-index: 40; }
+
+    /* Overflow */
+    .overflow-hidden { overflow: hidden; }
+    .overflow-y-auto { overflow-y: auto; }
+
+    /* Animations */
+    .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    .animate-spin { animation: spin 1s linear infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    /* Mobile header */
+    .mobile-header { display: flex; position: fixed; top: 0; left: 0; right: 0; z-index: 40; background: var(--bg-sidebar); border-bottom: 1px solid var(--border-light); padding: 0 1rem; height: 3.5rem; align-items: center; justify-content: space-between; }
+    @media (min-width: 768px) { .mobile-header { display: none; } }
+
+    /* Loading overlay */
+    .loading-overlay { display: none; position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 50; align-items: center; justify-content: center; }
+    .loading-overlay.active { display: flex; }
+
+    /* Status indicator */
+    .status-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; display: inline-block; }
+    .status-dot.active { background: var(--emerald); }
+    .status-dot.inactive { background: var(--red); }
+      /* Slate color compatibility (used in HTML) */
+    .bg-slate-950 { background: var(--bg-body); }
+    .bg-slate-900 { background: var(--bg-elevated); }
+    .text-slate-200 { color: var(--text-secondary); }
+    .text-slate-400 { color: var(--text-nav); }
+    .text-slate-500 { color: var(--text-muted); }
+    .text-slate-600 { color: #475569; }
+    .border-slate-700 { border-color: var(--border); }
+    .border-slate-800 { border-color: var(--border-light); }    /* Tabs */
+    .tab { padding: 0.5rem 1rem; font-size: 0.875rem; font-weight: 500; color: #94a3b8; background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; }
+    .tab:hover { color: #e2e8f0; }
+    .tab.active { color: #818cf8; border-bottom-color: #818cf8; }
+
+    /* Input/Select variants */
+    .input, .select { background: var(--bg-input); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-size: 0.875rem; width: 100%; outline: none; }
+    .input:focus, .select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.2); }
+
+    /* Action buttons */
+    
+    
+    
+    
+    
+    
+
+    /* Code/log blocks */
+    .log-INFO { color: #94a3b8; }
+    .log-WARNING { color: #fbbf24; }
+    .log-ERROR { color: #f87171; }
+    .log-DEBUG { color: #64748b; }
+
+    /* Misc */
+    .break-all { word-break: break-all; }
+    .list-disc { list-style-type: disc; }
+    .list-inside { list-style-position: inside; }
+    .opacity-50 { opacity: 0.5; }
+    .cursor-pointer { cursor: pointer; }
+    .cursor-not-allowed { cursor: not-allowed; }
+    .select-none { user-select: none; }    /* === ADDITIONAL UTILITY CLASSES === */
+    .block { display: block; }
+    .inline { display: inline-block; }
+    .flex-wrap { flex-wrap: wrap; }
+    .list-disc { list-style-type: disc; }
+    .list-inside { list-style-position: inside; }
+    .bg-white { background: #fff; }
+    .bg-slate-600 { background: #475569; }
+    .bg-slate-700 { background: #334155; }
+    .bg-emerald-600 { background: #059669; }
+    .bg-indigo-600\/10 { background: rgba(79,70,229,0.1); }
+    .bg-indigo-600\/30 { background: rgba(79,70,229,0.3); }
+    .bg-red-900\/30 { background: rgba(127,29,29,0.3); }
+    .bg-slate-700\/50 { background: rgba(51,65,85,0.5); }
+    .bg-yellow-900\/30 { background: rgba(113,63,18,0.3); }
+    .bg-black\/60 { background: rgba(0,0,0,0.6); }
+    .text-slate-300 { color: #cbd5e1; }
+    .text-yellow-300 { color: #fcd34d; }
+    .text-yellow-400 { color: #fbbf24; }
+    .text-red-300 { color: #fca5a5; }
+    .border-2 { border-width: 2px; }
+    .border-indigo-500 { border-color: #6366f1; }
+    .border-slate-500 { border-color: #64748b; }
+    .border-slate-600 { border-color: #475569; }
+    .border-red-700 { border-color: #b91c1c; }
+    .border-yellow-700 { border-color: #a16207; }
+    .hover\:border-slate-500:hover { border-color: #64748b; }
+    .hover\:bg-slate-700:hover { background: #334155; }
+    .hover\:bg-slate-700\/50:hover { background: rgba(51,65,85,0.5); }
+    .transition-colors { transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
+    .transition-transform { transition: transform 0.2s; }
+    .transition-all { transition: all 0.2s; }
+
+    /* Pseudo-class state classes (for :class bindings) */
+    .selected { border-color: #6366f1 !important; background: rgba(79,70,229,0.08); }
+    .done { background: #059669; border-color: #059669; }
+    .pending { background: #475569; border-color: #475569; }
+
+    /* Transform / Translate */
+    .translate-x-0 { transform: translateX(0); }
+    .translate-x-4 { transform: translateX(1rem); }
+    .translate-x-5 { transform: translateX(1.25rem); }
+
+    /* Sizing extras */
+    .w-full { width: 100%; }
+    .w-10 { width: 2.5rem; }
+    .w-16 { width: 4rem; }
+    .w-20 { width: 5rem; }
+    .w-32 { width: 8rem; }
+    .w-40 { width: 10rem; }
+    .w-48 { width: 12rem; }
+    .h-full { height: 100%; }
+    .h-px { height: 1px; }
+    .h-1\.5 { height: 0.375rem; }
+    .h-10 { height: 2.5rem; }
+    .max-w-2xl { max-width: 42rem; }
+    .max-w-4xl { max-width: 56rem; }
+    .max-w-5xl { max-width: 64rem; }
+    .max-h-96 { max-height: 24rem; }
+    .max-h-\[80vh\] { max-height: 80vh; }
+    .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+
+    /* Spacing extras */
+    .p-1\.5 { padding: 0.375rem; }
+    .p-3 { padding: 0.75rem; }
+    .p-6 { padding: 1.5rem; }
+    .px-8 { padding-left: 2rem; padding-right: 2rem; }
+    .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+    .py-1\.5 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+    .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+    .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+    .py-12 { padding-top: 3rem; padding-bottom: 3rem; }
+    .pt-20 { padding-top: 5rem; }
+    .pb-8 { padding-bottom: 2rem; }
+    .pl-10 { padding-left: 2.5rem; }
+    .pr-4 { padding-right: 1rem; }
+    .gap-1 { gap: 0.25rem; }
+    .space-y-5 > * + * { margin-top: 1.25rem; }
+    .mt-0\.5 { margin-top: 0.125rem; }
+    .mt-4 { margin-top: 1rem; }
+    .mt-6 { margin-top: 1.5rem; }
+    .mt-8 { margin-top: 2rem; }
+    .mb-6 { margin-bottom: 1.5rem; }
+    .mb-8 { margin-bottom: 2rem; }
+    .ml-1 { margin-left: 0.25rem; }
+    .ml-2 { margin-left: 0.5rem; }
+    .ml-3 { margin-left: 0.75rem; }
+    .mr-1 { margin-right: 0.25rem; }
+    .mr-2 { margin-right: 0.5rem; }
+    .mx-2 { margin-left: 0.5rem; margin-right: 0.5rem; }
+
+    /* Positioning extras */
+    .left-0\.5 { left: 0.125rem; }
+    .left-3 { left: 0.75rem; }
+    .top-0\.5 { top: 0.125rem; }
+    .top-3 { top: 0.75rem; }
+    .z-50 { z-index: 50; }
+
+    /* Overflow extras */
+    .overflow-x-auto { overflow-x: auto; }
+
+    /* Text extras */
+    .text-left { text-align: left; }
+    .justify-end { justify-content: flex-end; }
+
+    /* Rounded extras */
+    .rounded { border-radius: 0.25rem; }
+    .rounded-b-xl { border-bottom-left-radius: 0.75rem; border-bottom-right-radius: 0.75rem; }
+
+    /* Responsive */
+    @media (min-width: 640px) { .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (min-width: 768px) {
+        .md\:inline { display: inline; }
+        .md\:px-8 { padding-left: 2rem; padding-right: 2rem; }
+    }
+
+    /* Screen reader only */
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+    /* Log line (recordings page) */
+    .log-line { padding: 1px 0; }
+
+    /* Wizard components */
+    .step-circle { width: 2rem; height: 2rem; border-radius: 9999px; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.875rem; flex-shrink: 0; }
+    .source-card { background: var(--bg-elevated); border: 2px solid var(--border); border-radius: 0.75rem; padding: 1.5rem; cursor: pointer; transition: all 0.15s; text-align: center; }
+    .source-card:hover { border-color: #6366f1; background: rgba(79,70,229,0.08); }
+    .source-card.selected { border-color: #6366f1; background: rgba(79,70,229,0.08); }
+    .channel-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 0.75rem; border-radius: 0.5rem; cursor: pointer; font-size: 0.875rem; transition: all 0.15s; }
+    .channel-row:hover { background: rgba(51,65,85,0.5); }
+    .channel-row.selected { background: rgba(79,70,229,0.1); color: #a5b4fc; }    
+    
+    
+    
+    
+    .back-link { color: #64748b; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.875rem; cursor: pointer; border: none; background: none; padding: 0; }
+    .back-link:hover { color: #f8fafc; }</style>
+</head>
+<body class="bg-slate-950 text-slate-200 min-h-screen"
+      x-data="dashboardStore()"
+      x-init="init()">
+  
+  <div class="flex h-screen overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-slate-900 border-r border-slate-800 flex-shrink-0 hidden md:flex md:flex-col">
+      <div class="h-16 flex items-center px-6 border-b border-slate-800">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+          </div>
+          <div>
+            <h1 class="text-lg font-bold text-white">IPTVrec</h1>
+            <p class="text-xs text-slate-500">Dashboard</p>
+          </div>
+        </div>
+      </div>
+      <nav class="flex-1 px-3 py-4 space-y-1">
+        <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium bg-indigo-600/20 text-indigo-300">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>Dashboard
+        </a>
+        <a href="/recordings" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>Grabaciones
+        </a>
+        <a href="/schedule" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>programacion
+        </a>
+        <a href="/wizard" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>Nueva Grabacion
+        </a>
+        <a href="/settings" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>Ajustes
+        </a>
+      </nav>
+      <div class="p-4 border-t border-slate-800">
+        <div class="flex items-center gap-3 text-xs text-slate-500">
+          <div class="w-2 h-2 rounded-full" :class="daemon.running ? 'bg-emerald-400' : 'bg-red-400'"></div>
+          <span class="font-medium" x-text="daemon.running ? 'Demonio activo' : 'Demonio detenido'"></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Mobile header -->
+    <div class="md:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900 border-b border-slate-800 px-4 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <button @click="mobileMenu = !mobileMenu" class="text-slate-400 hover:text-white p-2">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+        </button>
+        <span class="font-bold text-white">IPTVrec</span>
+      </div>
+    </div>
+    <div x-show="mobileMenu" @click="mobileMenu = false" class="md:hidden fixed inset-0 z-30 bg-black/50" style="display: none;"></div>
+    <div x-show="mobileMenu" class="md:hidden fixed top-14 left-0 bottom-0 z-30 w-64 bg-slate-900 border-r border-slate-800 p-4 overflow-y-auto" style="display: none;">
+      <nav class="space-y-1">
+        <a href="/" @click="mobileMenu = false" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200">Dashboard</a>
+        <a href="/recordings" @click="mobileMenu = false" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200">Grabaciones</a>
+        <a href="/schedule" @click="mobileMenu = false" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200">programacion</a>
+        <a href="/wizard" @click="mobileMenu = false" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200">Nueva Grabacion</a>
+        <a href="/settings" @click="mobileMenu = false" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200">Ajustes</a>
+      </nav>
+    </div>
+
+    <!-- Main content -->
+    <main class="flex-1 overflow-y-auto md:pt-0 pt-14">
+      <div class="p-4 md:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
+        
+        <!-- Header -->
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-bold text-white">Dashboard</h2>
+            <p class="text-slate-500 text-sm" x-text="'Actualizado: ' + lastUpdate"></p>
+          </div>
+          <div class="flex gap-2">
+            <button @click="refresh()" class="btn-secondary text-sm flex items-center gap-2">
+              <svg class="w-4 h-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+              Actualizar
+            </button>
+            <a href="/wizard" class="btn-primary text-sm flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+              Nueva grabacion
+            </a>
+          </div>
+        </div>
+
+        <!-- Top cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="card p-5">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-slate-500 text-xs font-medium uppercase tracking-wider">Demonio</p>
+                <p class="text-2xl font-bold text-white mt-1" x-text="daemon.running ? 'Activo' : 'Detenido'"></p>
+              </div>
+              <div :class="'w-12 h-12 rounded-lg flex items-center justify-center ' + (daemon.running ? 'bg-emerald-900/40' : 'bg-red-900/40')">
+                <div class="w-3 h-3 rounded-full" :class="daemon.running ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'"></div>
+              </div>
+            </div>
+            <div class="mt-3 text-xs text-slate-500" x-show="daemon.running">
+              PID: <span class="text-slate-400 font-mono" x-text="daemon.pid"></span>
+            </div>
+          </div>
+          <div class="card p-5">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-slate-500 text-xs font-medium uppercase tracking-wider">Activas</p>
+                <p class="text-2xl font-bold text-white mt-1" x-text="activeCount"></p>
+              </div>
+              <div class="w-12 h-12 bg-blue-900/40 rounded-lg flex items-center justify-center">
+                <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+              </div>
+            </div>
+          </div>
+          <div class="card p-5">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-slate-500 text-xs font-medium uppercase tracking-wider">Proximas</p>
+                <p class="text-2xl font-bold text-white mt-1" x-text="upcomingCount"></p>
+              </div>
+              <div class="w-12 h-12 bg-purple-900/40 rounded-lg flex items-center justify-center">
+                <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+              </div>
+            </div>
+          </div>
+          <div class="card p-5">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-slate-500 text-xs font-medium uppercase tracking-wider">Disco (temp)</p>
+                <p class="text-2xl font-bold text-white mt-1" x-text="diskFree"></p>
+              </div>
+              <div class="w-12 h-12 bg-amber-900/40 rounded-lg flex items-center justify-center">
+                <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active recordings -->
+        <div class="card">
+          <div class="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-white">Grabaciones activas</h3>
+            <a href="/recordings" class="text-indigo-400 hover:text-indigo-300 text-sm font-medium">Ver todas</a>
+          </div>
+          <div class="p-5">
+            <template x-if="active.length === 0">
+              <div class="text-center py-8 text-slate-500">
+                <svg class="w-12 h-12 mx-auto mb-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                <p class="text-sm">No hay grabaciones activas</p>
+              </div>
+            </template>
+            <template x-for="rec in active" :key="rec.job_id">
+              <div class="mb-4 last:mb-0 p-4 bg-slate-900 rounded-lg border border-slate-700">
+                <div class="flex items-start justify-between gap-4">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-1">
+                      <h4 class="font-semibold text-white truncate" x-text="rec.name"></h4>
+                      <span :class="'badge-' + (rec.status === 'recording' ? 'green' : 'blue')" x-text="rec.status"></span>
+                    </div>
+                    <p class="text-xs text-slate-500">
+                      <span x-text="rec.source"></span> / <span x-text="rec.channel"></span>
+                    </p>
+                  </div>
+                  <div class="flex-shrink-0 flex items-center gap-2">
+                    <a :href="'/recordings?log=' + rec.job_id" class="text-slate-500 hover:text-indigo-400 p-1" title="Ver log">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    </a>
+                    <button @click="stopRecording(rec.job_id)" class="text-slate-500 hover:text-red-400 p-1" title="Detener">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"></path></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="mt-3 grid grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <span class="text-slate-500">Transcurrido</span>
+                    <p class="text-white font-mono" x-text="formatTime(rec.elapsed_s)"></p>
+                  </div>
+                  <div>
+                    <span class="text-slate-500">Restante</span>
+                    <p class="text-white font-mono" x-text="formatTime(rec.remaining_s)"></p>
+                  </div>
+                  <div>
+                    <span class="text-slate-500">Tamano</span>
+                    <p class="text-white font-mono" x-text="formatBytes(rec.current_size_bytes)"></p>
+                  </div>
+                </div>
+                <div class="mt-2 progress-bar">
+                  <div class="progress-fill bg-indigo-500" :style="'width: ' + progressPct(rec) + '%'"></div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Upcoming + Recent -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Proximas -->
+          <div class="card">
+            <div class="px-5 py-4 border-b border-slate-700">
+              <h3 class="text-lg font-semibold text-white">Proximas grabaciones</h3>
+            </div>
+            <div class="p-5">
+              <template x-if="upcoming.length === 0">
+                <div class="text-center py-6 text-slate-500 text-sm">No hay grabaciones programadas</div>
+              </template>
+              <template x-for="(u, i) in upcoming.slice(0, 8)" :key="i">
+                <div class="flex items-center justify-between py-2.5 border-b border-slate-700 last:border-0">
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm font-medium text-white truncate" x-text="u.name"></p>
+                    <p class="text-xs text-slate-500">
+                      <span x-text="u.source"></span> / <span x-text="u.channel"></span>
+                    </p>
+                  </div>
+                  <div class="text-right flex-shrink-0 ml-4">
+                    <p class="text-sm font-mono text-indigo-300" x-text="formatIn(u.in_s)"></p>
+                    <p class="text-xs text-slate-500" x-text="formatDate(u.next_fire)"></p>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Recientes -->
+          <div class="card">
+            <div class="px-5 py-4 border-b border-slate-700">
+              <h3 class="text-lg font-semibold text-white">ultimas grabaciones</h3>
+            </div>
+            <div class="p-5">
+              <template x-if="recent.length === 0">
+                <div class="text-center py-6 text-slate-500 text-sm">No hay grabaciones recientes</div>
+              </template>
+              <template x-for="(r, i) in recent.slice(0, 8)" :key="i">
+                <div class="flex items-center justify-between py-2.5 border-b border-slate-700 last:border-0">
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                      <span :class="r.status === 'success' ? 'text-emerald-400' : 'text-red-400'" x-text="r.status === 'success' ? '✓' : '✗'"></span>
+                      <p class="text-sm font-medium text-white truncate" x-text="r.name"></p>
+                    </div>
+                    <p class="text-xs text-slate-500 truncate" x-text="r.final_path || r.last_error"></p>
+                  </div>
+                  <div class="text-right flex-shrink-0 ml-4 text-xs text-slate-500">
+                    <p x-text="formatBytes(r.current_size_bytes || r.bytes)"></p>
+                    <template x-if="r.youtube_url">
+                      <a :href="r.youtube_url" target="_blank" class="text-red-400 hover:text-red-300">YouTube</a>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <!-- Disk + YouTube -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="card">
+            <div class="px-5 py-4 border-b border-slate-700">
+              <h3 class="text-lg font-semibold text-white">Espacio en disco</h3>
+            </div>
+            <div class="p-5 space-y-4">
+              <div>
+                <div class="flex justify-between text-sm mb-1">
+                  <span class="text-slate-400">Temporal</span>
+                  <span class="text-slate-500 font-mono" x-text="disk.temp ? formatBytes(disk.temp.free_mb * 1024 * 1024) : '...'"></span>
+                </div>
+                <div class="progress-bar" x-show="disk.temp">
+                  <div class="progress-fill bg-amber-500" :style="'width: ' + diskPct(disk.temp, disk.output) + '%'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between text-sm mb-1">
+                  <span class="text-slate-400">Salida final</span>
+                  <span class="text-slate-500 font-mono" x-text="disk.output ? formatBytes(disk.output.free_mb * 1024 * 1024) : '...'"></span>
+                </div>
+                <div class="progress-bar" x-show="disk.output">
+                  <div class="progress-fill bg-indigo-500" :style="'width: ' + diskPct(disk.output, disk.temp) + '%'"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="px-5 py-4 border-b border-slate-700">
+              <h3 class="text-lg font-semibold text-white">YouTube</h3>
+            </div>
+            <div class="p-5">
+              <template x-if="!youtube.configured">
+                <div class="text-center py-4 text-slate-500 text-sm">
+                  YouTube no configurado
+                  <br>
+                  <a href="/settings" class="text-indigo-400 hover:text-indigo-300 text-sm font-medium mt-1 inline-block">Configurar</a>
+                </div>
+              </template>
+              <template x-if="youtube.configured">
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-400 text-sm">Estado</span>
+                    <span :class="youtube.valid ? 'badge-green' : 'badge-red'" x-text="youtube.valid ? 'Valido' : 'Invalido'"></span>
+                  </div>
+                  <div class="flex items-center justify-between" x-show="youtube.days_until_expiry">
+                    <span class="text-slate-400 text-sm">Caduca en</span>
+                    <span class="text-slate-200 text-sm font-mono" x-text="Math.round(youtube.days_until_expiry) + ' dias'"></span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-400 text-sm">Autenticado</span>
+                    <span class="text-slate-200 text-sm font-mono" x-text="youtube.auth_age_days ? Math.round(youtube.auth_age_days) + ' dias' : '—'"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function dashboardStore() {
+      return {
+        loading: false,
+        mobileMenu: false,
+        lastUpdate: '',
+        daemon: { running: false, pid: null },
+        active: [],
+        upcoming: [],
+        recent: [],
+        disk: { temp: null, output: null },
+        youtube: {},
+        get activeCount() { return this.active.length },
+        get upcomingCount() { return this.upcoming.length },
+        get diskFree() {
+          if (this.disk.temp) return this.formatBytes(this.disk.temp.free_mb * 1024 * 1024);
+          return '...';
+        },
+        init() {
+          this.refresh();
+          setInterval(() => this.refresh(), 15000);
+        },
+        async refresh() {
+          this.loading = true;
+          try {
+            // Fetch daemon status
+            const daemonRes = await fetch('/api/daemon/status').then(r => r.json());
+            this.daemon = daemonRes;
+            
+            // Fetch main status
+            const statusRes = await fetch('/api/status').then(r => r.json());
+            this.lastUpdate = new Date().toLocaleString('es-ES');
+            
+            // Parse active
+            this.active = (statusRes.active || []).map(r => ({
+              job_id: r.job_id,
+              name: r.name || r.channel,
+              source: r.source,
+              channel: r.channel,
+              status: r.status,
+              elapsed_s: r.elapsed_s || 0,
+              remaining_s: r.remaining_s || 0,
+              current_size_bytes: r.current_size_bytes || 0,
+            }));
+            
+            // Parse upcoming
+            this.upcoming = (statusRes.upcoming || []).slice(0, 10);
+            
+            // Parse recent
+            this.recent = (statusRes.recent || []).slice(0, 10);
+            
+            // Parse disk
+            this.disk = statusRes.disk || { temp: null, output: null };
+            
+            // Parse youtube
+            this.youtube = statusRes.youtube || {};
+          } catch (err) {
+            console.error('Error fetching status:', err);
+          } finally {
+            this.loading = false;
+          }
+        },
+        async stopRecording(jobId) {
+          if (!confirm('Detener grabacion ' + jobId + '?')) return;
+          try {
+            const res = await fetch('/api/recordings/' + jobId + '/stop', { method: 'POST' }).then(r => r.json());
+            if (res.success) this.refresh();
+          } catch (err) {
+            console.error(err);
+          }
+        },
+        progressPct(rec) {
+          const total = (rec.elapsed_s || 0) + (rec.remaining_s || 0);
+          if (total <= 0) return 0;
+          return Math.min(100, Math.round((rec.elapsed_s / total) * 100));
+        },
+        diskPct(d1, d2) {
+          if (!d1 || !d1.free_mb) return 0;
+          const used = Math.max(1, d1.free_mb);
+          const total = 1;
+          return Math.min(100, Math.round((1 - Math.min(1, used / 50000)) * 100));
+        },
+        formatTime(seconds) {
+          if (!seconds || seconds <= 0) return '00:00:00';
+          const h = Math.floor(seconds / 3600);
+          const m = Math.floor((seconds % 3600) / 60);
+          const s = seconds % 60;
+          return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        },
+        formatBytes(bytes) {
+          if (!bytes || bytes <= 0) return '0 B';
+          const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+          let i = 0;
+          let b = bytes;
+          while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+          return b.toFixed(1) + ' ' + units[i];
+        },
+        formatIn(seconds) {
+          if (!seconds || seconds <= 0) return 'ahora';
+          const d = Math.floor(seconds / 86400);
+          const h = Math.floor((seconds % 86400) / 3600);
+          if (d) return d + 'd ' + h + 'h';
+          if (h) return h + 'h ' + Math.floor((seconds % 3600) / 60) + 'm';
+          return Math.floor(seconds / 60) + 'm';
+        },
+        formatDate(iso) {
+          if (!iso) return '';
+          const d = new Date(iso);
+          return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
+      }
+    }
+  </script>
+</body>
+</html>

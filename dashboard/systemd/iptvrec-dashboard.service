@@ -1,0 +1,30 @@
+[Unit]
+Description=IPTVrec Dashboard - Web interface for IPTVrec
+Documentation=https://github.com/yourusername/iptvrec
+After=network.target
+
+[Service]
+Type=simple
+User=iptvrec
+Group=iptvrec
+WorkingDirectory=/opt/iptvrec/dashboard
+
+# If using a virtual environment:
+Environment=PATH=/opt/iptvrec/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONPATH=/opt/iptvrec/src
+
+ExecStart=/opt/iptvrec/venv/bin/python dashboard/run.py
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Restart behavior
+Restart=on-failure
+RestartSec=5
+
+# Avoid killing too slowly
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
